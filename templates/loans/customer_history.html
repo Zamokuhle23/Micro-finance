@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ customer.name }} - Loan History{% endblock %}
+
+{% block extra_head %}
+<!-- FullCalendar CSS -->
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/main.min.css" rel="stylesheet">
+
+<style>
+    body {
+        background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+    }
+
+    #calendar {
+        max-width: 1100px;
+        margin: 20px auto;
+        padding: 20px;
+        background-color: white;
+        border-radius: 12px;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    }
+
+    /* Event colors */
+    .fc-event-loan-disbursed {
+        background-color: #2196F3 !important;
+        border-color: #2196F3 !important;
+    }
+
+    .fc-event-loan-paid {
+        background-color: green !important;
+        border-color: green !important;
+    }
+
+    .fc-event-loan-missed {
+        background-color: red !important;
+        border-color: red !important;
+        font-weight: bold;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4 text-center">Loan History for {{ customer.name }}</h1>
+
+    {% if loan %}
+        <div class="card mb-4">
+            <div class="card-body">
+                <p><strong>Loan Start Date:</strong> {{ loan.start_date|date:"F d, Y" }}</p>
+                <p><strong>Duration:</strong> {{ loan.duration_days }} days</p>
+                <p><strong>Loan Amount:</strong> {{ loan.principal_amount }} SZL</p>
+                <p><strong>Status:</strong> {{ loan.status|capfirst }}</p>
+                <hr>
+                <p class="text-muted">Calendar shows working days only (Mon-Fri). Weekends are grayed out.</p>
+            </div>
+        </div>
+
+        <div id="calendar"></div>
+
+    {% else %}
+        <div class="alert alert-warning text-center">
+            No loan history found for this customer.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- FullCalendar JS -->
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/main.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const calendarEl = document.getElementById('calendar');
+
+    // Events passed from Django view as JSON
+    const eventsData = JSON.parse('{{ events_json|escapejs }}');
+
+    // Map events to add custom classes for styling
+    const fullCalendarEvents = eventsData.map(event => {
+        let className = '';
+        if(event.title === 'Disbursed') className = 'fc-event-loan-disbursed';
+        else if(event.title === 'Paid') className = 'fc-event-loan-paid';
+        else if(event.title === 'Missed') className = 'fc-event-loan-missed';
+
+        return {
+            title: event.title,
+            start: event.start,
+            classNames: [className]
+        };
+    });
+
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,dayGridWeek' },
+        events: fullCalendarEvents,
+        businessHours: { daysOfWeek:[1,2,3,4,5] }, // Only Mon-Fri
+        dayCellDidMount: function(info) {
+            if(info.date.getDay() === 0 || info.date.getDay() === 6) {
+                info.el.style.backgroundColor = '#f0f0f0'; // Weekends light gray
+            }
+        },
+        eventDidMount: function(info) {
+            info.el.title = info.event.title + ' on ' + info.event.start.toLocaleDateString();
+        }
+    });
+
+    calendar.render();
+});
+</script>
+{% endblock %}

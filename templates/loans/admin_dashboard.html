@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+
+  <h3 class="mb-4">Admin Dashboard</h3>
+
+  <!-- Global Stats -->
+  <div class="row mb-4">
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h6>Total Customers</h6>
+          <div class="h4">{{ total_customers }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h6>Total Loans</h6>
+          <div class="h4">{{ total_loans }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-center">
+        <div class="card-body">
+          <h6>Active Loans</h6>
+          <div class="h4">{{ active_loans }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loan Settings -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="mb-3">Loan Settings</h5>
+      <form method="post" action="{% url 'loans:update_loan_settings' %}">
+        {% csrf_token %}
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label for="interest_percent" class="form-label">Interest Rate (%)</label>
+            <input type="number" id="interest_percent" name="interest_percent" class="form-control"
+                   value="{{ loan_settings.interest_percent }}" step="0.01" min="0">
+          </div>
+          <div class="col-md-3">
+            <label for="duration_days" class="form-label">Loan Duration (days)</label>
+            <input type="number" id="duration_days" name="duration_days" class="form-control"
+                   value="{{ loan_settings.duration_days }}" min="1">
+          </div>
+          <div class="col-md-3">
+            <label for="min_loan_amount" class="form-label">Minimum Loan Amount</label>
+            <input type="number" id="min_loan_amount" name="min_loan_amount" class="form-control"
+                   value="{{ loan_settings.min_loan_amount }}" step="0.01" min="0">
+          </div>
+          <div class="col-md-3">
+            <label for="max_loan_amount" class="form-label">Maximum Loan Amount</label>
+            <input type="number" id="max_loan_amount" name="max_loan_amount" class="form-control"
+                   value="{{ loan_settings.max_loan_amount }}" step="0.01" min="0">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">Save Settings</button>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
