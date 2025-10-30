@@ -27,7 +27,6 @@
             <th>Username</th>
             <th>Name</th>
             <th>Email</th>
-            <th>Customers</th>
             <th>Joined</th>
             <th>Actions</th>
           </tr>
@@ -38,7 +37,6 @@
             <td>{{ agent.user.username }}</td>
             <td>{{ agent.user.get_full_name }}</td>
             <td>{{ agent.user.email }}</td>
-            <td>{{ agent.customers.count }}</td>
             <td>{{ agent.user.date_joined|date:"Y-m-d" }}</td>
             <td>
               <a href="{% url 'loans:edit_agent' agent.id %}" class="btn btn-sm btn-warning">Edit</a>
