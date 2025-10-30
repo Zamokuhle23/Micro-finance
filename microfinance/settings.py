@@ -8,7 +8,7 @@ from datetime import timedelta
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY
-SECRET_KEY = config("SECRET_KEY", default="unsafe-secret-key-for-dev")
+SECRET_KEY = config("SECRET_KEY", default="sondos-secret-key-for-dev")
 DEBUG = config("DEBUG", default=True, cast=bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="*", cast=lambda v: [s.strip() for s in v.split(",")])
 
@@ -59,12 +59,43 @@ TEMPLATES = [
 WSGI_APPLICATION = 'microfinance.wsgi.application'
 
 # Database (PostgreSQL for production)
-DATABASES = {
-    'default': dj_database_url.config(
-        default=f"postgres://{config('DB_USER', 'postgres')}:{config('DB_PASSWORD', '')}@{config('DB_HOST', 'localhost')}:{config('DB_PORT', '5432')}/{config('DB_NAME', 'microfinance')}",
-        conn_max_age=600
-    )
-}
+import dj_database_url
+import os
+
+import os
+from urllib.parse import urlparse, parse_qsl
+from dotenv import load_dotenv
+
+# Only load .env file if running locally
+if os.getenv('RENDER') is None:  # RENDER is always set on Render's environment
+    load_dotenv()
+
+# Get DATABASE_URL from environment
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL:
+    tmpPostgres = urlparse(DATABASE_URL)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': tmpPostgres.path.lstrip('/'),
+            'USER': tmpPostgres.username,
+            'PASSWORD': tmpPostgres.password,
+            'HOST': tmpPostgres.hostname,
+            'PORT': tmpPostgres.port or 5432,
+            'OPTIONS': dict(parse_qsl(tmpPostgres.query)),
+        }
+    }
+else:
+    # Fallback to SQLite if no DATABASE_URL is found (optional)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        }
+    }
+
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
