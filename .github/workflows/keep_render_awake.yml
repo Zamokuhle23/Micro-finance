@@ -1,0 +1,20 @@
+name: Keep Render App Awake (Mon–Fri, 8 AM–8 PM CAT)
+
+on:
+  schedule:
+    # Run every 10 minutes, Monday–Friday, 6:00–18:00 UTC (8 AM–8 PM CAT)
+    - cron: "*/10 6-18 * * 1-5"
+  workflow_dispatch:  # manual trigger option
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Keep Render App Awake
+        run: |
+          delay=$((RANDOM % 120))
+          echo "Sleeping for $delay seconds..."
+          sleep $delay
+          echo "Pinging Render app..."
+          curl -s -o /dev/null -w "%{http_code}\n" https://micro-finance-beo1.onrender.com/
