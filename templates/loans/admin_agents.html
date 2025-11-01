@@ -34,8 +34,17 @@
         <tbody>
           {% for agent in agents %}
           <tr>
-            <td>{{ agent.user.username }}</td>
-            <td>{{ agent.user.get_full_name }}</td>
+              <td>
+              <a href="{% url 'loans:agent_detail' agent.id %}">
+                {{ agent.user.username }}
+              </a>
+            </td>
+            
+              <td>
+              <a href="{% url 'loans:agent_detail' agent.id %}">
+                {{ agent.user.get_full_name }}
+              </a>
+            </td>
             <td>{{ agent.user.email }}</td>
             <td>{{ agent.user.date_joined|date:"Y-m-d" }}</td>
             <td>

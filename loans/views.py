@@ -59,8 +59,11 @@ class AgentDashboardView(View):
         paid_today = len(loans) - len(due_loans)
         performance = round((paid_today / len(loans)) * 100, 2) if loans else 0
 
+        amount_in_hand = agent_profile.amount_in_hand
+
         self.context = {
             "agent": agent_profile,
+            "amount_in_hand": amount_in_hand, 
             "loans": loans,
             "due_loans": due_loans,
             "performance": performance,
@@ -108,6 +111,8 @@ class MarkPaymentView(LoginRequiredMixin, View):
         loan.total_paid += amount
         loan.last_paid_date = today
         loan.days_paid += 1
+        agent_profile.amount_in_hand += amount
+        agent_profile.save()
 
         # ✅ If total_paid >= total_due, mark loan as completed
         if loan.remaining_balance <= 0:
@@ -259,7 +264,7 @@ class LoanOfferView(View):
 
     def post(self, request, customer_id):
         customer = get_object_or_404(Customer, id=customer_id)
-
+        agent_profile = AgentProfile.objects.get(user=request.user)
         interest = float(request.POST.get("interest"))
         days = int(request.POST.get("days"))
         amount = float(request.POST.get("amount"))
@@ -277,6 +282,8 @@ class LoanOfferView(View):
             daily_payment=round(daily_payment, 2),
             status='active'
         )
+        agent_profile.amount_in_hand -= Decimal(amount)
+        agent_profile.save()
 
         messages.success(request, f"Loan created successfully for {customer.name} ({amount} SZL at {interest}% for {days} days).")
         return redirect("loans:agent_dashboard")
@@ -343,7 +350,7 @@ from django.views import View
 from django.contrib.auth.mixins import UserPassesTestMixin
 from datetime import date, timedelta
 from django.db.models import Sum, Count
-from .models import AgentProfile, Customer, Loan, Repayment, LoanSettings
+from .models import AgentProfile, Customer, Loan, Repayment, LoanSettings,AdminTransactionRequest
 from decimal import Decimal
 
 class AdminRequiredMixin(UserPassesTestMixin):
@@ -363,6 +370,7 @@ class AdminDashboardView(AdminRequiredMixin, View):
         total_loans = Loan.objects.count()
         active_loans = Loan.objects.filter(status="active").count()
         settings = LoanSettings.objects.first()
+        pending_requests = AdminTransactionRequest.objects.filter(status='pending').select_related('agent__user')
 
         context = {
            
@@ -370,6 +378,7 @@ class AdminDashboardView(AdminRequiredMixin, View):
             "total_loans": total_loans,
             "active_loans": active_loans,
             "loan_settings": settings,
+            "pending_requests": pending_requests,
         }
         return render(request, "loans/admin_dashboard.html", context)
 
@@ -555,3 +564,91 @@ class EditAgentView(View):
         user.save()
         messages.success(request, "Agent details updated successfully!")
         return redirect("loans:admin_agents")
+
+class SendToAdminRequestView(View):
+    def get(self, request):
+        return render(request, "loans/send_to_admin.html")
+
+    def post(self, request):
+        agent = AgentProfile.objects.get(user=request.user)
+        requested_amount = Decimal(request.POST.get("amount"))
+
+        if requested_amount > agent.amount_in_hand:
+            messages.error(request, "Insufficient balance")
+            return redirect("loans:agent_dashboard")
+
+        AdminTransactionRequest.objects.create(
+            agent=agent,
+            requested_amount=requested_amount
+        )
+
+        messages.success(request, f"Request to send {requested_amount} SZL submitted for admin approval.")
+        return redirect("loans:agent_dashboard")
+    
+
+class AdminApproveTransactionView(UserPassesTestMixin, View):
+    def test_func(self):
+        return self.request.user.is_superuser or self.request.user.is_staff
+
+    def post(self, request, request_id):
+        transaction_request = get_object_or_404(AdminTransactionRequest, id=request_id)
+        action = request.POST.get('action')
+        actual_amount = request.POST.get('actual_amount')
+        rejection_note = request.POST.get('rejection_note')
+
+        if action == 'approve':
+            amount = transaction_request.requested_amount
+            if actual_amount:
+                try:
+                    amount = float(actual_amount)
+                except ValueError:
+                    messages.error(request, "Invalid amount entered.")
+                    return redirect('loans:admin_dashboard')
+
+            # Approve and subtract
+            transaction_request.status = 'approved'
+            transaction_request.actual_received_amount = amount
+            transaction_request.agent.amount_in_hand -= amount
+            transaction_request.agent.save()
+            transaction_request.save()
+            messages.success(request, f"Approved {transaction_request.agent.user.username}'s request of {amount}.")
+
+        elif action == 'reject':
+            transaction_request.status = 'rejected'
+            transaction_request.rejection_note = rejection_note or "No reason provided."
+            transaction_request.save()
+            messages.warning(request, f"Rejected {transaction_request.agent.user.username}'s request.")
+
+        return redirect('loans:admin_dashboard')
+    
+
+
+def admin_required(user):
+    return user.is_staff or user.is_superuser
+
+@method_decorator([login_required, user_passes_test(admin_required)], name='dispatch')
+class AgentDetailView(View):
+    def get(self, request, agent_id):
+        agent = get_object_or_404(AgentProfile, id=agent_id)
+        return render(request, "loans/agent_detail.html", {"agent": agent})
+
+
+@method_decorator([login_required, user_passes_test(admin_required)], name='dispatch')
+class AdminGiveAgentMoneyView(View):
+    def post(self, request, agent_id):
+        agent = get_object_or_404(AgentProfile, id=agent_id)
+        try:
+            amount = Decimal(request.POST.get("amount"))
+            if amount <= 0:
+                messages.error(request, "Amount must be greater than zero.")
+                return redirect("loans:agent_detail", agent_id=agent.id)
+        except:
+            messages.error(request, "Invalid amount entered.")
+            return redirect("loans:agent_detail", agent_id=agent.id)
+
+        # Add money to agent's amount_in_hand
+        agent.amount_in_hand += amount
+        agent.save()
+
+        messages.success(request, f"{amount} SZL successfully given to {agent.user.get_full_name()}.")
+        return redirect("loans:agent_detail", agent_id=agent.id)

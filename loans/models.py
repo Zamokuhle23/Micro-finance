@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from datetime import date, timedelta
+from decimal import Decimal
 from accounts.models import AgentProfile
 
 
@@ -45,50 +46,54 @@ class Customer(models.Model):
         self.save()
 
 
+    
+
 class Loan(models.Model):
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    customer = models.ForeignKey('Customer', on_delete=models.CASCADE)
     principal_amount = models.DecimalField(max_digits=10, decimal_places=2)
     interest_rate = models.DecimalField(max_digits=5, decimal_places=2, default=20)
     total_due = models.DecimalField(max_digits=10, decimal_places=2, blank=True)
     daily_payment = models.DecimalField(max_digits=10, decimal_places=2, blank=True)
     duration_days = models.IntegerField(default=20)
-    start_date = models.DateField(auto_now_add=True)
+    start_date = models.DateField(blank=True, null=True)
     end_date = models.DateField(blank=True, null=True)
     status = models.CharField(max_length=20, default='active')
-    last_paid_date = models.DateField(null=True, blank=True)  # NEW FIELD
+    last_paid_date = models.DateField(null=True, blank=True)
     days_paid = models.IntegerField(default=0)
-
-    # # NEW FIELDS
     total_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    # remaining_balance = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
-        # If start_date is None (object not yet saved), set it to today
-        if not self.start_date:
-            self.start_date = date.today()
+        from loans.models import PublicHoliday  # avoid circular import
 
+        # 1️⃣ Calculate financial values if missing
         if not self.total_due:
-            self.total_due = self.principal_amount + (self.principal_amount * self.interest_rate / 100)
+            self.total_due = self.principal_amount + (
+                self.principal_amount * self.interest_rate / Decimal(100)
+            )
         if not self.daily_payment:
-            self.daily_payment = self.total_due / self.duration_days
+            self.daily_payment = self.total_due / Decimal(self.duration_days)
+
+        # 2️⃣ Determine valid start date (not today, not weekend, not public holiday)
+        if not self.start_date:
+            proposed_date = date.today() + timedelta(days=1)  # start from tomorrow
+            holidays = set(PublicHoliday.objects.values_list("holiday_date", flat=True))
+            while proposed_date.weekday() >= 5 or proposed_date in holidays:
+                proposed_date += timedelta(days=1)
+            self.start_date = proposed_date
+
+        # 3️⃣ Set end date based on start date
         if not self.end_date:
             self.end_date = self.start_date + timedelta(days=self.duration_days)
 
         super().save(*args, **kwargs)
 
+    # ---------------- Utility methods ----------------
     @property
     def days_elapsed(self):
         return (date.today() - self.start_date).days
 
-    # @property
-    # def days_paid(self):
-    #     return self.repayment_set.count()
-    
     @property
     def is_due_today(self):
-        """
-        Loan is due today if it's active and last payment date is NOT today.
-        """
         if self.status != "active":
             return False
         today = date.today()
@@ -107,7 +112,6 @@ class Loan(models.Model):
     def remaining_balance(self):
         return max(self.total_due - self.total_paid, 0)
 
-
     @property
     def payment_status_color(self):
         if self.days_missed == 0:
@@ -117,55 +121,42 @@ class Loan(models.Model):
         else:
             return "red"
 
-    def __str__(self):
-        return f"{self.customer.name} - {self.principal_amount} SZL"
-    
     @staticmethod
     def _next_business_day(d: date) -> date:
-        """Return d if it's a business day, otherwise advance to next Mon-Fri."""
+        """Return next valid business day (skip weekends + public holidays)."""
+        from loans.models import PublicHoliday
+        holidays = set(PublicHoliday.objects.values_list("holiday_date", flat=True))
         nd = d
-        while nd.weekday() >= 5:  # 5=Sat, 6=Sun
+        while nd.weekday() >= 5 or nd in holidays:  # 5=Sat, 6=Sun
             nd += timedelta(days=1)
         return nd
 
     @property
     def next_payment_date(self):
-        """
-        Returns a human-friendly label for the next payment day:
-        - 'Today'
-        - 'Tomorrow'
-        - 'On Monday' (or the next weekday)
-        - None if loan fully paid
-        """
         if self.is_fully_paid:
             return None
 
         today = date.today()
 
-        # If already paid today → next business day after today
         if self.last_paid_date == today:
             next_day = self._next_business_day(today + timedelta(days=1))
-        # If missed payments → due today (or next business day if weekend)
         elif getattr(self, "days_missed", 0) > 0:
             next_day = self._next_business_day(today)
-        # If no payments yet → start today (or next business day)
         elif not self.last_paid_date:
             next_day = self._next_business_day(today)
         else:
-            # Otherwise, general case: next business day after last payment
             next_day = self._next_business_day(self.last_paid_date + timedelta(days=1))
 
-        # ---- Friendly text formatting ----
         if next_day == today:
             return "Today"
         elif next_day == today + timedelta(days=1):
             return "Tomorrow"
         else:
-            # Example: if next_day is Monday, return "On Monday"
             return f"On {next_day.strftime('%A')}"
 
     def __str__(self):
         return f"{self.customer.name} - {self.principal_amount} SZL"
+    
 
 class Repayment(models.Model):
     loan = models.ForeignKey(Loan, on_delete=models.CASCADE)
@@ -185,3 +176,40 @@ class LoanSettings(models.Model):
     duration_days = models.PositiveIntegerField(default=20)
     min_loan_amount = models.DecimalField(max_digits=10, decimal_places=2, default=200)
     max_loan_amount = models.DecimalField(max_digits=10, decimal_places=2, default=500)
+
+
+
+
+class AdminTransactionRequest(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    )
+    agent = models.ForeignKey(AgentProfile, on_delete=models.CASCADE)
+    requested_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    actual_received_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    rejection_note = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def approve(self, actual_amount=None):
+        """Admin approves and updates agent balance."""
+        self.status = 'approved'
+        self.actual_received_amount = actual_amount or self.requested_amount
+        self.agent.amount_in_hand -= self.actual_received_amount
+        self.agent.save()
+        self.save()
+
+
+    
+class PublicHoliday(models.Model):
+    name = models.CharField(max_length=100)
+    holiday_date = models.DateField(unique=True)  # renamed
+
+    def __str__(self):
+        return f"{self.name} ({self.holiday_date})"
+
+    @staticmethod
+    def is_holiday(check_date: date) -> bool:
+        return PublicHoliday.objects.filter(holiday_date=check_date).exists()

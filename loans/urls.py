@@ -23,6 +23,11 @@ urlpatterns = [
     path('admin/agents/', views.AdminAgentsView.as_view(), name='admin_agents'),
     path('admin/agents/invite/', views.GenerateAgentInviteView.as_view(), name='generate_agent_invite'),
     path('admin/agents/edit/<int:agent_id>/', views.EditAgentView.as_view(), name='edit_agent'),
+    path("send-to-admin/", views.SendToAdminRequestView.as_view(), name="send_to_admin"),
+    path("admin/agents/<int:agent_id>/", views.AgentDetailView.as_view(), name="agent_detail"),
+    path("admin/agents/<int:agent_id>/give-money/", views.AdminGiveAgentMoneyView.as_view(), name="give_agent_money"),
+    path("admin/transaction/approve/<int:request_id>/", views.AdminApproveTransactionView.as_view(),name="approve_transaction",
+    ),
 
 
 
